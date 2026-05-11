@@ -15,6 +15,7 @@ already know — no code changes on their side.
 | Array bridge | [rust-numpy](https://github.com/PyO3/rust-numpy) v0.28 | zero-copy NumPy ↔ ndarray conversion |
 | Array ops | [ndarray](https://github.com/rust-ndarray/ndarray) v0.17 | N-dimensional array ops in Rust |
 | Build / packaging | [maturin](https://github.com/PyO3/maturin) v1.13 | compiles + installs as a pip wheel |
+| Parallelism | [rayon](https://github.com/rayon-rs/rayon) v1 | data parallelism across CPU cores |
 
 ---
 
@@ -70,9 +71,46 @@ Rust inlines and vectorises the whole thing in one pass.
 
 ### Known gaps / next steps
 
-- [ ] Parallel softmax with `rayon` (per-row parallelism, should close the gap)
+- [x] Parallel softmax with `rayon` → see Session 2
 - [ ] `f32` support (half the memory bandwidth → potentially 2× throughput)
 - [ ] `leaky_relu(x, alpha=0.01)` and `elu(x)` (same pattern, easy wins)
 - [ ] SIMD explicit hints (or `std::simd` nightly) for relu
 - [ ] Benchmark on larger arrays to see cache-miss behaviour
 - [ ] Publish to PyPI as a real package
+
+---
+
+## Session 2 — Parallel softmax with rayon
+
+### Goal
+Replace the sequential lane-by-lane softmax loop with a parallel one using rayon,
+without changing the public API at all.
+
+### What changed
+
+Added `rayon = "1"` and enabled `ndarray`'s `rayon` feature flag. In `softmax`,
+replaced the sequential `for` loop with `.into_iter().par_bridge().for_each()`.
+
+`par_bridge()` is rayon's adapter for bridging any standard `Iterator` into its
+parallel scheduler. We use it because `LanesMut<IxDyn>` doesn't implement
+`IntoParallelIterator` directly (ndarray's parallel support targets fixed-dimension
+types natively; dynamic-dimension lanes need the bridge).
+
+Each lane (1-D slice along the softmax axis) is independent — no shared mutable
+state — so parallelising is safe and correct by construction.
+
+### Benchmark results (200 runs, AMD x86-64, Python 3.12)
+
+| Array shape | NumPy | rustnum | Speedup |
+|---|---|---|---|
+| 1000×1000 f64 | 11.348 ms | 3.720 ms | **3.05×** |
+| 32×128×512 f64 | 26.135 ms | 8.123 ms | **3.22×** |
+
+Correctness verified against NumPy on both 2D and 3D inputs with non-default axis.
+
+### Known gaps / next steps
+
+- [ ] `f32` support
+- [ ] `leaky_relu`, `elu`, `gelu`
+- [ ] Native `IntoParallelIterator` for `LanesMut<IxDyn>` (upstream ndarray contribution opportunity)
+- [ ] PyPI release
