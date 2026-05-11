@@ -1,4 +1,5 @@
 use ndarray::Axis;
+use rayon::prelude::*;
 use numpy::{IntoPyArray, PyArrayDyn, PyReadonlyArrayDyn};
 use pyo3::prelude::*;
 
@@ -98,13 +99,16 @@ mod rustnum {
 
         let mut out = arr.to_owned();
 
-        // iterate over every 1-D slice along `ax` and normalise in-place
-        for mut lane in out.lanes_mut(Axis(ax)) {
-            let max = lane.fold(f64::NEG_INFINITY, |a, &b| a.max(b));
-            lane.mapv_inplace(|v| (v - max).exp());
-            let sum: f64 = lane.iter().sum();
-            lane.mapv_inplace(|v| v / sum);
-        }
+        // normalise every 1-D slice along `ax` in parallel across CPU cores
+        out.lanes_mut(Axis(ax))
+            .into_iter()
+            .par_bridge()
+            .for_each(|mut lane| {
+                let max = lane.fold(f64::NEG_INFINITY, |a, &b| a.max(b));
+                lane.mapv_inplace(|v| (v - max).exp());
+                let sum: f64 = lane.iter().sum();
+                lane.mapv_inplace(|v| v / sum);
+            });
 
         Ok(out.into_pyarray(py))
     }
