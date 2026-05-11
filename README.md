@@ -12,7 +12,7 @@ x = np.random.randn(1000, 1000)
 
 out = rustnum.sigmoid(x)   # 2.4× faster than the NumPy equivalent
 out = rustnum.relu(x)      # same as np.maximum(x, 0)
-out = rustnum.softmax(x)   # numerically stable, same API as torch.softmax
+out = rustnum.softmax(x)   # numerically stable, 3× faster, parallelised across CPU cores
 ```
 
 ---
@@ -74,16 +74,25 @@ used by PyTorch and JAX internally.
 
 ## Benchmarks
 
-Measured on a 1000×1000 float64 array, 200 runs, AMD x86-64, Python 3.12.
+200 runs, AMD x86-64, Python 3.12.
+
+**1000×1000 float64**
 
 | Function | NumPy | rustnum | Speedup |
 |---|---|---|---|
 | `relu` | 1.29 ms | 1.27 ms | ~1× |
 | `sigmoid` | 15.2 ms | 6.4 ms | **2.4×** |
-| `softmax` | 11.0 ms | 9.8 ms | 1.1× |
+| `softmax` | 11.35 ms | 3.72 ms | **3.05×** |
+
+**32×128×512 float64 (3D)**
+
+| Function | NumPy | rustnum | Speedup |
+|---|---|---|---|
+| `softmax` | 26.14 ms | 8.12 ms | **3.22×** |
 
 `relu` matches NumPy because `np.maximum` is already SIMD-vectorised.
 `sigmoid` wins because NumPy chains multiple ufunc calls; Rust fuses them in one pass.
+`softmax` is parallelised across CPU cores via rayon — each row processed independently.
 
 ---
 
@@ -94,13 +103,14 @@ Measured on a 1000×1000 float64 array, 200 runs, AMD x86-64, Python 3.12.
 | Python bindings | [PyO3](https://github.com/PyO3/pyo3) |
 | NumPy array bridge | [rust-numpy](https://github.com/PyO3/rust-numpy) |
 | N-dimensional arrays | [ndarray](https://github.com/rust-ndarray/ndarray) |
+| Parallelism | [rayon](https://github.com/rayon-rs/rayon) |
 | Build & packaging | [maturin](https://github.com/PyO3/maturin) |
 
 ---
 
 ## Roadmap
 
-- [ ] Parallel softmax with `rayon` (per-row parallelism)
+- [x] Parallel softmax with `rayon` (3× speedup)
 - [ ] `f32` support for half the memory bandwidth
 - [ ] More activations: `leaky_relu`, `elu`, `gelu`
 - [ ] PyPI release
