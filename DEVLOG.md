@@ -110,7 +110,51 @@ Correctness verified against NumPy on both 2D and 3D inputs with non-default axi
 
 ### Known gaps / next steps
 
-- [ ] `f32` support
+- [x] `f32` support → see Session 3
 - [ ] `leaky_relu`, `elu`, `gelu`
 - [ ] Native `IntoParallelIterator` for `LanesMut<IxDyn>` (upstream ndarray contribution opportunity)
+- [ ] PyPI release
+
+---
+
+## Session 3 — f32 support
+
+### Goal
+Accept both float32 and float64 arrays with no change to the public API.
+Output dtype always matches input dtype — no silent upcasting.
+
+### What changed
+
+Introduced a `FloatElem` trait implemented by both `f32` and `f64`. All three
+functions (`relu`, `sigmoid`, `softmax`) are now generic over `F: FloatElem`.
+The Python-facing functions accept `&Bound<PyAny>` and dispatch to the correct
+type via `downcast::<PyArrayDyn<f64>>()` then `downcast::<PyArrayDyn<f32>>()`.
+
+**Why a custom trait instead of `num_traits::Float`?**
+Avoids an extra dependency. We only need `exp`, `relu`, and `sigmoid` — all of
+which are trivially implementable using each type's own inherent methods.
+
+**Note on `downcast` deprecation**
+PyO3 0.28 deprecates `downcast` in favour of `cast`, but `cast` does not perform
+rust-numpy's dtype-aware check (it matches on Python type only, not element type).
+Suppressed with `#[allow(deprecated)]` pending a rust-numpy upstream fix.
+
+### Benchmark results (1000×1000, 200 runs, AMD x86-64, Python 3.12)
+
+| Function | dtype | NumPy | rustnum | Speedup |
+|---|---|---|---|---|
+| relu | f64 | 1.41 ms | 1.35 ms | ~1× |
+| relu | f32 | 0.50 ms | 0.57 ms | ~1× |
+| sigmoid | f64 | 11.66 ms | 6.08 ms | **1.9×** |
+| sigmoid | f32 | 3.96 ms | 3.44 ms | **1.15×** |
+| softmax | f64 | 11.94 ms | 3.63 ms | **3.3×** |
+| softmax | f32 | 4.00 ms | 1.83 ms | **2.2×** |
+
+f32 is faster in absolute terms (half the memory bandwidth) but NumPy's f32
+path is also faster, so relative speedups are smaller.
+
+### Known gaps / next steps
+
+- [ ] `leaky_relu`, `elu`, `gelu`
+- [ ] Resolve `downcast` deprecation once rust-numpy settles on the replacement API
 - [ ] PyPI release
